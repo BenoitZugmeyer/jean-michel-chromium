@@ -1,0 +1,43 @@
+https://developer.chrome.com/extensions/nativeMessaging
+
+Extension settings:
+{
+  "path": "...",
+  "active_permissions": {
+    "api": [
+      "activeTab",
+    ],
+    "explicit_host": [
+      "https://ajax.googleapis.com/*",
+    ],
+    "manifest_permissions": [],
+  },
+  "commands": {},
+  "content_settings": [],
+  "creation_flags": 38,
+  "events": [],
+  "extension_can_script_all_urls": true,
+  "from_bookmark": false,
+  "from_webstore": false,
+  "granted_permissions": {
+    "api": [
+      "activeTab",
+    ],
+    "explicit_host": [
+      "https://ajax.googleapis.com/*",
+    ],
+    "manifest_permissions": [],
+  },
+  "incognito_content_settings": [],
+  "incognito_preferences": {},
+  "initial_keybindings_set": true,
+  "install_time": "13088894944224363",
+  "location": 4,
+  "newAllowFileAccess": true,
+  "preferences": {},
+  "regular_only_preferences": {},
+  "state": 1,
+  "was_installed_by_default": false,
+  "was_installed_by_oem": false,
+}
+

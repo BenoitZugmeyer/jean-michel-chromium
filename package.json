@@ -1,0 +1,21 @@
+{
+  "name": "jean-michel-chromium",
+  "version": "1.0.0-dev",
+  "description": "Spawn and control chromium instances",
+  "main": "index.js",
+  "scripts": {
+    "lint": "eslint . || true"
+  },
+  "author": {
+    "name": "Benoît Zugmeyer",
+    "email": "bzugmeyer@gmail.com"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "temp": "^0.8.3",
+    "which": "^1.2.0"
+  },
+  "devDependencies": {
+    "eslint": "^1.6.0"
+  }
+}
