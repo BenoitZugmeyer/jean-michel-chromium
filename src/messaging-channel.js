@@ -71,6 +71,7 @@ class MessagingChannel extends EventEmitter {
 
   constructor(sockPath) {
     super();
+    this._sockPath = sockPath;
     this._server = net.Server();
 
     this._server.on("connection", (client) => {
@@ -82,6 +83,7 @@ class MessagingChannel extends EventEmitter {
 
   close() {
     // Needs to be synchronous as it could be called when exiting the process.
+    this._server.close();
     if (fs.existsSync(this._sockPath)) fs.unlinkSync(this._sockPath);
   }
 
