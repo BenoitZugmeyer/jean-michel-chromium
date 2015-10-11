@@ -10,6 +10,7 @@ tmp.setGracefulCleanup();
 
 const pkg = require("../package.json");
 const PromiseUtil= require("./promise-util");
+const MessagingChannel= require("./messaging-channel");
 const wrapRun = PromiseUtil.wrapRun;
 const which = PromiseUtil.wrapCPS(require("which"));
 
@@ -17,6 +18,7 @@ const makeTemporaryDirectory = PromiseUtil.wrapCPS(tmp.dir, { multi: ["path", "c
 const fileExists = PromiseUtil.wrapCPS(fs.exists, { noError: true });
 const readFile = PromiseUtil.wrapCPS(fs.readFile);
 const writeFile = PromiseUtil.wrapCPS(fs.writeFile);
+const symlink = PromiseUtil.wrapCPS(fs.symlink);
 const mkdir = PromiseUtil.wrapCPS(fs.mkdir);
 
 const withTemporaryDirectory = wrapRun(function* (options, fn) {
@@ -116,6 +118,30 @@ const installExtension = wrapRun(function* (profilePath, settings) {
   yield writeFile(preferencesPath, JSON.stringify(preferences));
 });
 
+
+const installMessaging = wrapRun(function* (userDataDirectory, name, allowedExtensions) {
+  const pipeioPath = path.join(userDataDirectory, `${name}_pipeio.js`)
+  const sockPath = path.join(userDataDirectory, `${name}_pipeio.sock`);
+  const hostsPath = path.join(userDataDirectory, "NativeMessagingHosts");
+  const manifestPath = path.join(hostsPath, name + ".json");
+
+  if (!(yield fileExists(hostsPath))) yield mkdir(hostsPath);
+
+  if (!(yield fileExists(manifestPath))) {
+    yield symlink(path.join(__dirname, "..", "pipeio", "pipeio.js"), pipeioPath);
+    const manifest = {
+      name,
+      description: `${pkg.name} messaging channel for ${name}`,
+      path: pipeioPath,
+      type: "stdio",
+      allowed_origins: allowedExtensions.map((ext) => `chrome-extension://${computeExtensionId(ext)}/`),
+    }
+    yield writeFile(manifestPath, JSON.stringify(manifest));
+  }
+
+  return new MessagingChannel(sockPath);
+});
+
 const createProfile = wrapRun(function* (userDataDirectory, name) {
   const profileDirectory = path.join(userDataDirectory, name);
   yield mkdir(profileDirectory);
@@ -126,5 +152,6 @@ module.exports = {
   withTemporaryUserDataDirectory,
   withChromium,
   installExtension,
+  installMessaging,
   createProfile,
 };
