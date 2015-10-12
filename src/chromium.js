@@ -297,13 +297,15 @@ class Chromium {
 
   spawnWith(fn) {
     return PromiseUtil.run(function* () {
+      let result;
       try {
         yield this.spawn();
-        yield fn(this);
+        result = yield fn(this);
       }
       finally {
         yield this.kill();
       }
+      return result;
     }.bind(this));
   }
 
