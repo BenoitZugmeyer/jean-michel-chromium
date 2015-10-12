@@ -69,19 +69,33 @@ class Port extends EventEmitter {
 
 class MessagingChannel extends EventEmitter {
 
-  constructor(sockPath) {
-    super();
+  connect(sockPath) {
+    if (this._server) throw new Error("Channel already connected");
     this._sockPath = sockPath;
+
     this._server = net.Server();
+
+    const listeningPromise = new Promise((resolve, reject) => {
+      this._server.once("listening", () => {
+        this._server.removeListener("error", reject);
+        resolve();
+      });
+      this._server.once("error", () => {
+        this._server.removeListener("listening", resolve);
+        reject();
+      });
+    });
 
     this._server.on("connection", (client) => {
       this.emit("connection", new Port(client));
     });
 
-    this._server.listen(sockPath);
+    this._server.listen(this._sockPath);
+
+    return listeningPromise;
   }
 
-  close() {
+  disconnect() {
     // Needs to be synchronous as it could be called when exiting the process.
     this._server.close();
     if (fs.existsSync(this._sockPath)) fs.unlinkSync(this._sockPath);
