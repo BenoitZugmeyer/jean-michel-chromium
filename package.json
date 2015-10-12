@@ -12,7 +12,7 @@
   },
   "license": "ISC",
   "dependencies": {
-    "temp": "^0.8.3",
+    "tmp": "0.0.28",
     "which": "^1.2.0"
   },
   "devDependencies": {
