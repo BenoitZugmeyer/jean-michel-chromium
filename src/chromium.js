@@ -14,51 +14,15 @@ const MessagingChannel= require("./messaging-channel");
 const wrapRun = PromiseUtil.wrapRun;
 const which = PromiseUtil.wrapCPS(require("which"));
 
-const makeTemporaryDirectory = PromiseUtil.wrapCPS(tmp.dir, { multi: ["path", "cleanup"] });
+const createTemporaryDirectory = PromiseUtil.wrapCPS(tmp.dir, { multi: ["path", "cleanup"] });
 const fileExists = PromiseUtil.wrapCPS(fs.exists, { noError: true });
 const readFile = PromiseUtil.wrapCPS(fs.readFile);
 const writeFile = PromiseUtil.wrapCPS(fs.writeFile);
 const symlink = PromiseUtil.wrapCPS(fs.symlink);
 const mkdir = PromiseUtil.wrapCPS(fs.mkdir);
 
-const withTemporaryDirectory = wrapRun(function* (options, fn) {
-  const result = yield makeTemporaryDirectory(options);
-  try {
-    return yield fn(result.path);
-  }
-  finally {
-    result.cleanup();
-  }
-});
-
-const withTemporaryUserDataDirectory = (fn) =>
-  withTemporaryDirectory({ prefix: `${pkg.name}-UserData-`, unsafeCleanup: true }, fn);
-
-const withSpawn = (bin, args, options, fn) =>
-  new Promise((resolve, reject) => {
-    const child = child_process.spawn(bin, args, options);
-    let isAlive = true;
-    let onKilled;
-    const whenKilled = (action) =>
-      (result) => {
-        if (!isAlive) {
-          action(result);
-        }
-        else {
-          onKilled = () => action(result);
-          child.kill();
-        }
-      };
-
-    child.on("exit", () => {
-      isAlive = false;
-      if (onKilled) onKilled();
-    });
-
-    PromiseUtil.castPromise(fn(child))
-    .then(whenKilled(resolve), whenKilled(reject));
-  });
-
+const createTemporaryUserDataDirectory = () =>
+  createTemporaryDirectory({ prefix: `${pkg.name}-UserData-`, unsafeCleanup: true });
 
 let _defaultBinaryPath;
 
@@ -94,8 +58,24 @@ const flagsToArgs = (flags) =>
     if (argValue !== false) return `--${argName}=${argValue}`;
   });
 
-const withChromium = wrapRun(function* (flags, fn) {
-  return withSpawn(yield getDefaultBinaryPath(), flagsToArgs(flags), {}, fn);
+const spawnChromium = wrapRun(function* (flags, args) {
+  const argsWithFlags = flagsToArgs(flags);
+  if (args) argsWithFlags.push.apply(argsWithFlags, args);
+
+  const result = child_process.spawn(yield getDefaultBinaryPath(), argsWithFlags, {});
+
+  const exitPromise = new Promise((resolve) => {
+    result.on("exit", (code, signal) => {
+      resolve({ code, signal });
+    });
+  });
+
+  result.asyncKill = (signal) => {
+    result.kill(signal);
+    return exitPromise;
+  };
+
+  return result;
 });
 
 const computeExtensionId = (path) =>
@@ -149,8 +129,8 @@ const createProfile = wrapRun(function* (userDataDirectory, name) {
 });
 
 module.exports = {
-  withTemporaryUserDataDirectory,
-  withChromium,
+  createTemporaryUserDataDirectory,
+  spawnChromium,
   installExtension,
   installMessaging,
   createProfile,

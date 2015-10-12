@@ -1,41 +1,46 @@
 "use strict";
 /*eslint no-console: 0*/
 
-const Chromium = require("../src/chromium");
-const wrapRun = require("../src/promise-util").wrapRun;
+const Chromium = require("../../src/chromium");
+const run = require("../../src/promise-util").run;
 const path = require("path");
 
-// Run chromium in a temporary user data directory
-const runAnonymousProfile = (fn) =>
+const wait = (delay) =>
+  new Promise((resolve) => setTimeout(() => resolve(), delay))
 
-  // Create a temporary user data directory
-  Chromium.withTemporaryUserDataDirectory(wrapRun(function* (userDataDirectory) {
+run(function* () {
+  console.log("Creating a temporary user data directory...");
+  const userData = yield Chromium.createTemporaryUserDataDirectory();
+  let chromium;
 
-    // Create a default profile
-    const profileDirectory = yield Chromium.createProfile(userDataDirectory, "Default");
+  try {
+    console.log("Creating the default profile...");
+    const profilePath = yield Chromium.createProfile(userData.path, "Default");
 
-    // Install a custom extension
+    console.log("Installing the extension...");
     yield Chromium.installExtension(
-      profileDirectory,
+      profilePath,
       {
         path: path.join(__dirname, "extension"),
         location: 4,
       }
     );
 
-    // Spawn chromium
-    yield Chromium.withChromium({
-      userDataDir: userDataDirectory,
+    console.log("Spawning chromium...");
+    chromium = yield Chromium.spawnChromium({
+      userDataDir: userData.path,
       profileDirectory: "Default",
       noFirstRun: true,
-    }, fn);
+    });
 
-  }));
-
-const wait = (delay) =>
-  new Promise((resolve) => setTimeout(() => resolve(), delay))
-
-// Run chromium, wait 10 seconds then quit
-runAnonymousProfile(() => wait(10000))
-.then((result) => console.log('RESULT', result))
+    console.log("Waiting 10 seconds...");
+    yield wait(10000);
+  }
+  finally {
+    console.log("Closing...");
+    if (chromium) yield chromium.asyncKill();
+    userData.cleanup();
+  }
+})
+.then(() => console.log("Closed"))
 .catch((error) => console.error(error.stack));
