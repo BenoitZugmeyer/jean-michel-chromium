@@ -10,7 +10,7 @@
     "name": "Benoît Zugmeyer",
     "email": "bzugmeyer@gmail.com"
   },
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "tmp": "0.0.28",
     "which": "^1.2.0"
