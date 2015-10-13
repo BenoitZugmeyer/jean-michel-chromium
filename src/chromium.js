@@ -8,6 +8,7 @@ const path = require("path");
 const FsUtil = require("./fs-util");
 const PromiseUtil = require("./promise-util");
 const makePrivate = require("./make-private");
+const Cleaner = require("./cleaner");
 const which = PromiseUtil.wrapCPS(require("which"));
 
 const wrapRun = PromiseUtil.wrapRun;
@@ -102,7 +103,7 @@ const formatDirectory = function (descriptor, name) {
     throw new Error(`Bat ${name} value`);
   }
 
-  return { path, cleanup: cleanup || (() => {}) };
+  return { path, cleanup };
 };
 
 const mkdirIfNeeded = wrapRun(function* (path) {
@@ -139,7 +140,6 @@ const installPreferences = wrapRun(function* (profilePath) {
     data = JSON.parse(originalPreferencesContent);
   }
   else {
-    cleanup = () => {};
     data = {};
   }
 
@@ -196,19 +196,7 @@ const installMessaging = wrapRun(function* (userDataPath, allowedExtensions, inf
   };
 });
 
-const addCleanup = (chromium, fn) => {
-  privateChromium(chromium).toCleanup.unshift(fn);
-}
-
-const cleanup = (chromium) => {
-  const privy = privateChromium(chromium);
-  for (const obj of privy.toCleanup) {
-    obj.cleanup();
-  }
-  privy.toCleanup.length = 0;
-  privy.spawning = false;
-  privy.cancelSpawn = false;
-}
+const cleaner = new Cleaner();
 
 const privateChromium = makePrivate();
 
@@ -233,11 +221,18 @@ class Chromium {
     privy.child = null;
     privy.spawned = false;
     privy.cancelSpawn = false;
-    privy.toCleanup = [];
   }
 
   spawn() {
     const privy = privateChromium(this);
+
+    const addCleanup = cleaner.add.bind(cleaner, this);
+
+    addCleanup(() => {
+      this._spawned = false;
+      this._cancelSpawn = false;
+      this._child = null;
+    });
 
     return PromiseUtil.run(function* () {
       if (privy.spawned) throw new Error("Already spawned");
@@ -245,11 +240,11 @@ class Chromium {
 
       try {
         const userData = yield installUserDataDirectory(privy.userDataDirectory);
-        addCleanup(this, userData);
+        addCleanup(userData);
         const profile = yield installProfileDirectory(userData.path, privy.profileDirectory);
-        addCleanup(this, profile);
+        addCleanup(profile);
         const preferences = yield installPreferences(profile.path);
-        addCleanup(this, preferences);
+        addCleanup(preferences);
 
         for (const extension of privy.extensions) {
           yield installExtension(preferences.data, extension);
@@ -258,10 +253,8 @@ class Chromium {
         const extensionIds = Object.keys(preferences.data.extensions.settings);
         for (const channel of privy.messaging) {
           const infos = yield channel._ref(this);
-          addCleanup(this, { cleanup: () => { channel._unref(this); } });
-          addCleanup(this,
-            yield installMessaging(userData.path, extensionIds, infos)
-          );
+          addCleanup(() => channel._unref(this));
+          addCleanup(yield installMessaging(userData.path, extensionIds, infos));
         }
 
         yield writeFile(preferences.path, JSON.stringify(preferences.data));
@@ -274,7 +267,7 @@ class Chromium {
         }));
       }
       catch (e) {
-        cleanup(this);
+        cleaner.clean(this);
         throw e;
       }
     }.bind(this));
@@ -292,7 +285,7 @@ class Chromium {
       else {
         privy.cancelSpawn = true;
       }
-      cleanup(this);
+      cleaner.clean(this);
     }.bind(this));
   }
 

@@ -8,6 +8,7 @@ const path = require("path");
 const streamChunks = require("./stream-util").streamChunks;
 const PromiseUtil = require("./promise-util");
 const makePrivate = require("./make-private");
+const Cleaner = require("./cleaner");
 const FsUtil = require("./fs-util");
 
 const endianness = os.endianness();
@@ -94,12 +95,11 @@ const listen = (server, sockPath) => {
 };
 
 const privateMessagingChannel = makePrivate();
+const cleaner = new Cleaner();
 
 const disconnect = (channel) => {
-  const privy = privateMessagingChannel(channel);
-  privy.cancelConnect = true;
-  if (privy.server) privy.server.close();
-  if (privy.directory) privy.directory.cleanup();
+  cleaner.clean(channel);
+  privateMessagingChannel(channel).cancelConnect = true;
 };
 
 const connect = PromiseUtil.wrapRun(function* (channel) {
@@ -112,6 +112,7 @@ const connect = PromiseUtil.wrapRun(function* (channel) {
 
   try {
     privy.directory = yield FsUtil.createTemporaryDirectory({ prefix: `MessagingChannel-${privy.name}-`})
+    cleaner.add(channel, privy.directory);
     assertNotCanceled();
     privy.sockPath = path.join(privy.directory.path, "pipeio.sock");
     const pipeioPath = path.join(privy.directory.path, "pipeio.js")
@@ -122,6 +123,7 @@ const connect = PromiseUtil.wrapRun(function* (channel) {
     privy.server = net.Server();
 
     yield listen(privy.server, privy.sockPath);
+    cleaner.add(channel, () => privy.server.close());
     assertNotCanceled();
 
     privy.server.on("connection", (client) => {
@@ -131,7 +133,7 @@ const connect = PromiseUtil.wrapRun(function* (channel) {
     return { name: privy.name, pipeioPath };
   }
   catch (e) {
-    disconnect(channel);
+    cleaner.clean(channel);
     throw e;
   }
 });
