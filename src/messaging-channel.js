@@ -6,7 +6,6 @@ const fs = require("fs");
 const os = require("os");
 
 const streamChunks = require("./stream-util").streamChunks;
-const makePrivate = require("./make-private");
 
 const endianness = os.endianness();
 const uint32Size = 4;
@@ -44,8 +43,7 @@ class Port extends EventEmitter {
 
   constructor(client) {
     super();
-
-    this.client = client;
+    this._client = client;
 
     streamObjects(client, (message) => {
       let parsed;
@@ -64,47 +62,45 @@ class Port extends EventEmitter {
   }
 
   post(message) {
-    this.client.write(bufferFrom(message));
+    this._client.write(bufferFrom(message));
   }
 
 }
 
-Port = makePrivate(Port);
-
 class MessagingChannel extends EventEmitter {
 
   connect(sockPath) {
-    if (this.server) throw new Error("Channel already connected");
-    this.sockPath = sockPath;
+    if (this._server) throw new Error("Channel already connected");
+    this._sockPath = sockPath;
 
-    this.server = net.Server();
+    this._server = net.Server();
 
     const listeningPromise = new Promise((resolve, reject) => {
-      this.server.once("listening", () => {
-        this.server.removeListener("error", reject);
+      this._server.once("listening", () => {
+        this._server.removeListener("error", reject);
         resolve();
       });
-      this.server.once("error", () => {
-        this.server.removeListener("listening", resolve);
+      this._server.once("error", () => {
+        this._server.removeListener("listening", resolve);
         reject();
       });
     });
 
-    this.server.on("connection", (client) => {
+    this._server.on("connection", (client) => {
       this.emit("connection", new Port(client));
     });
 
-    this.server.listen(this.sockPath);
+    this._server.listen(this._sockPath);
 
     return listeningPromise;
   }
 
   disconnect() {
     // Needs to be synchronous as it could be called when exiting the process.
-    this.server.close();
-    if (fs.existsSync(this.sockPath)) fs.unlinkSync(this.sockPath);
+    this._server.close();
+    if (fs.existsSync(this._sockPath)) fs.unlinkSync(this._sockPath);
   }
 
 }
 
-module.exports = makePrivate(MessagingChannel);
+module.exports = MessagingChannel;
