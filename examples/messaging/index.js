@@ -4,20 +4,19 @@
 const jmc = require("../..");
 const path = require("path");
 
-const wait = (delay) =>
-  new Promise((resolve) => setTimeout(() => resolve(), delay))
-
-// Spawn a chromium instance with a custom extension installed, wait 10 seconds then quit.
+// Spawn a chromium instance, post a message on the "foo.bar" channel, print the response then exit.
 
 const messaging = new jmc.MessagingChannel("foo.bar");
+
 messaging.on("connection", (port) => {
   port.on("message", (message) => {
     console.log(`Message from extension: ${message}`);
+    chromium.kill();
   });
   port.post("coucou");
 });
 
-new jmc.Chromium({
+const chromium = new jmc.Chromium({
   extensions: [
     {
       path: path.join(__dirname, "extension"),
@@ -25,9 +24,7 @@ new jmc.Chromium({
     },
   ],
   messaging: [ messaging ],
-})
-.spawnWith(() => {
-  return wait(1000)
-})
-.then(() => console.log("Success!"))
+});
+
+chromium.spawn()
 .catch((error) => console.error(error.stack));
