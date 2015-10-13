@@ -158,7 +158,7 @@ const installPreferences = wrapRun(function* (profilePath) {
   };
 });
 
-const installExtension = function (preferences, extension) {
+const installExtension = wrapRun(function* (preferences, extension) {
   if (!extension || typeof extension !== "object") {
     throw new Error(`Invalid extension type: expected object, received ${typeof extension}`);
   }
@@ -167,8 +167,12 @@ const installExtension = function (preferences, extension) {
     throw new Error("Extension path is mendatory");
   }
 
+  if (!(yield fileExists(extension.path))) {
+    throw new Error(`Extension does not exist at ${extension.path}`);
+  }
+
   preferences.extensions.settings[computeExtensionId(extension.path)] = extension;
-};
+});
 
 const installMessaging = wrapRun(function* (userDataPath, name, allowedExtensions, channel) {
   const pipeioPath = path.join(userDataPath, `${name}_pipeio.js`)
@@ -252,7 +256,7 @@ class Chromium {
         this._addCleanup(preferences);
 
         for (const extension of this._extensions) {
-          installExtension(preferences.data, extension);
+          yield installExtension(preferences.data, extension);
         }
 
         const extensionIds = Object.keys(preferences.data.extensions.settings);
