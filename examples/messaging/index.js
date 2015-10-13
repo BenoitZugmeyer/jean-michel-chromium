@@ -27,7 +27,7 @@ new jmc.Chromium({
   messaging: [ messaging ],
 })
 .spawnWith(() => {
-  return wait(100000)
+  return wait(1000)
 })
 .then(() => console.log("Success!"))
 .catch((error) => console.error(error.stack));
