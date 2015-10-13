@@ -10,6 +10,11 @@
     "name": "Benoît Zugmeyer",
     "email": "bzugmeyer@gmail.com"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BenoitZugmeyer/jean-michel-chromium.git"
+  },
+  "homepage": "https://github.com/BenoitZugmeyer/jean-michel-chromium",
   "license": "MIT",
   "dependencies": {
     "tmp": "0.0.28",
