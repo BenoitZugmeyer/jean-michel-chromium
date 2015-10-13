@@ -2,7 +2,7 @@
   "name": "jean-michel-chromium",
   "version": "1.0.0-dev",
   "description": "Spawn and control chromium instances",
-  "main": "index.js",
+  "main": "src/index.js",
   "scripts": {
     "lint": "eslint . || true"
   },

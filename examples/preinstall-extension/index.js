@@ -1,7 +1,7 @@
 "use strict";
 /*eslint no-console: 0*/
 
-const Chromium = require("../../src/chromium");
+const Chromium = require("../..").Chromium;
 const path = require("path");
 
 const wait = (delay) =>
