@@ -11,6 +11,7 @@ tmp.setGracefulCleanup();
 const pkg = require("../package.json");
 const PromiseUtil= require("./promise-util");
 const MessagingChannel= require("./messaging-channel");
+const makePrivate= require("./make-private");
 const wrapRun = PromiseUtil.wrapRun;
 const which = PromiseUtil.wrapCPS(require("which"));
 
@@ -211,56 +212,56 @@ class Chromium {
 
   constructor(options) {
     if (!options) options = {};
-    this._profileDirectory = options.profileDirectory || createTemporaryProfileDirectory;
-    this._userDataDirectory = options.userDataDirectory || createTemporaryUserDataDirectory;
-    this._extensions = options.extensions || [];
-    this._messaging = new Map(
+    this.profileDirectory = options.profileDirectory || createTemporaryProfileDirectory;
+    this.userDataDirectory = options.userDataDirectory || createTemporaryUserDataDirectory;
+    this.extensions = options.extensions || [];
+    this.messaging = new Map(
       (options.messaging || []).map((name) => [name, new MessagingChannel(this)])
     );
-    this._flags = options.flags || {};
+    this.flags = options.flags || {};
 
-    this._child = null;
-    this._spawned = false;
-    this._cancelSpawn = false;
-    this._toCleanup = [];
+    this.child = null;
+    this.spawned = false;
+    this.cancelSpawn = false;
+    this.toCleanup = [];
   }
 
   _addCleanup(fn) {
-    this._toCleanup.unshift(fn);
+    this.toCleanup.unshift(fn);
   }
 
   _cleanup() {
-    for (const obj of this._toCleanup) {
+    for (const obj of this.toCleanup) {
       obj.cleanup();
     }
-    this._toCleanup.length = 0;
-    this._spawning = false;
-    this._cancelSpawn = false;
+    this.toCleanup.length = 0;
+    this.spawning = false;
+    this.cancelSpawn = false;
   }
 
   messaging(name) {
-    return this._messaging.get(name);
+    return this.messaging.get(name);
   }
 
   spawn() {
-    if (this._spawned) throw new Error("Already spawned");
-    this._spawned = true;
+    if (this.spawned) throw new Error("Already spawned");
+    this.spawned = true;
 
     return PromiseUtil.run(function* () {
       try {
-        const userData = yield installUserDataDirectory(this._userDataDirectory);
+        const userData = yield installUserDataDirectory(this.userDataDirectory);
         this._addCleanup(userData);
-        const profile = yield installProfileDirectory(userData.path, this._profileDirectory);
+        const profile = yield installProfileDirectory(userData.path, this.profileDirectory);
         this._addCleanup(profile);
         const preferences = yield installPreferences(profile.path);
         this._addCleanup(preferences);
 
-        for (const extension of this._extensions) {
+        for (const extension of this.extensions) {
           yield installExtension(preferences.data, extension);
         }
 
         const extensionIds = Object.keys(preferences.data.extensions.settings);
-        for (const entry of this._messaging) {
+        for (const entry of this.messaging) {
           const name = entry[0];
           const channel = entry[1];
 
@@ -271,9 +272,9 @@ class Chromium {
 
         yield writeFile(preferences.path, JSON.stringify(preferences.data));
 
-        if (this._cancelSpawn) throw new Error("Killed before spawning");
+        if (this.cancelSpawn) throw new Error("Killed before spawning");
 
-        this._child = yield spawnChromium(Object.assign({}, this._flags, {
+        this.child = yield spawnChromium(Object.assign({}, this.flags, {
           userDataDir: userData.path,
           profileDirectory: profile.name,
         }));
@@ -286,14 +287,14 @@ class Chromium {
   }
 
   kill() {
-    if (!this._spawned) throw new Error("Not spawned");
+    if (!this.spawned) throw new Error("Not spawned");
 
     return PromiseUtil.run(function* () {
-      if (this._child) {
-        yield this._child.asyncKill();
+      if (this.child) {
+        yield this.child.asyncKill();
       }
       else {
-        this._cancelSpawn = true;
+        this.cancelSpawn = true;
       }
       this._cleanup();
     }.bind(this));
@@ -315,4 +316,4 @@ class Chromium {
 
 }
 
-module.exports = Chromium;
+module.exports = makePrivate(Chromium);
