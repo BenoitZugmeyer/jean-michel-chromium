@@ -5,28 +5,22 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
-const tmp = require("tmp");
-tmp.setGracefulCleanup();
-
-const pkg = require("../package.json");
-const PromiseUtil= require("./promise-util");
-const MessagingChannel= require("./messaging-channel");
+const FsUtil = require("./fs-util");
+const PromiseUtil = require("./promise-util");
 const makePrivate = require("./make-private");
-const wrapRun = PromiseUtil.wrapRun;
 const which = PromiseUtil.wrapCPS(require("which"));
 
-const createTemporaryDirectory = PromiseUtil.wrapCPS(tmp.dir, { multi: ["path", "cleanup"] });
-const fileExists = PromiseUtil.wrapCPS(fs.exists, { noError: true });
-const readFile = PromiseUtil.wrapCPS(fs.readFile);
-const writeFile = PromiseUtil.wrapCPS(fs.writeFile);
-const symlink = PromiseUtil.wrapCPS(fs.symlink);
-const mkdir = PromiseUtil.wrapCPS(fs.mkdir);
+const wrapRun = PromiseUtil.wrapRun;
+const createTemporaryDirectory = FsUtil.createTemporaryDirectory;
+const mkdir = FsUtil.mkdir;
+const fileExists = FsUtil.fileExists;
+const readFile = FsUtil.readFile;
+const writeFile = FsUtil.writeFile;
 
-const createTemporaryUserDataDirectory = () =>
-  createTemporaryDirectory({ prefix: `${pkg.name}-UserData-`, unsafeCleanup: true });
+const createTemporaryUserDataDirectory = () => createTemporaryDirectory({ prefix: `UserData-` });
 
 const createTemporaryProfileDirectory = (userDataDirectory) =>
-  createTemporaryDirectory({ dir: userDataDirectory, prefix: "Session-", unsafeCleanup: true });
+  createTemporaryDirectory({ dir: userDataDirectory, prefix: "Session-" });
 
 let _defaultBinaryPath;
 
@@ -175,35 +169,29 @@ const installExtension = wrapRun(function* (preferences, extension) {
   preferences.extensions.settings[computeExtensionId(extension.path)] = extension;
 });
 
-const installMessaging = wrapRun(function* (userDataPath, name, allowedExtensions, channel) {
-  const pipeioPath = path.join(userDataPath, `${name}_pipeio.js`)
-  const sockPath = path.join(userDataPath, `${name}_pipeio.sock`);
+const installMessaging = wrapRun(function* (userDataPath, allowedExtensions, infos) {
+  const name = infos.name;
   const hostsPath = path.join(userDataPath, "NativeMessagingHosts");
   const manifestPath = path.join(hostsPath, `${name}.json`);
 
   if (yield fileExists(manifestPath)) {
-    throw Error(`Extension ${name} already installed`);
+    throw Error(`Messaging ${name} already installed`);
   }
 
   yield mkdirIfNeeded(hostsPath);
 
-  yield symlink(path.join(__dirname, "..", "pipeio", "pipeio.js"), pipeioPath);
-
   const manifest = {
     name,
-    description: `${pkg.name} messaging channel for ${name}`,
-    path: pipeioPath,
+    description: `Messaging channel for ${name}`,
+    path: infos.pipeioPath,
     type: "stdio",
     allowed_origins: allowedExtensions.map((ext) => `chrome-extension://${ext}/`),
   };
   yield writeFile(manifestPath, JSON.stringify(manifest));
 
-  yield channel.connect(sockPath);
-
   return {
     cleanup() {
       fs.unlinkSync(manifestPath);
-      channel.disconnect();
     },
   };
 });
@@ -233,19 +221,19 @@ class Chromium {
     privy.profileDirectory = options.profileDirectory || createTemporaryProfileDirectory;
     privy.userDataDirectory = options.userDataDirectory || createTemporaryUserDataDirectory;
     privy.extensions = options.extensions || [];
-    privy.messaging = new Map(
-      (options.messaging || []).map((name) => [name, new MessagingChannel(this)])
-    );
+    privy.messaging =
+      options.messaging ?
+        Array.isArray(options.messaging) ?
+          options.messaging :
+          [ options.messaging ] :
+        [];
+
     privy.flags = options.flags || {};
 
     privy.child = null;
     privy.spawned = false;
     privy.cancelSpawn = false;
     privy.toCleanup = [];
-  }
-
-  messaging(name) {
-    return privateChromium(this).messaging.get(name);
   }
 
   spawn() {
@@ -268,12 +256,11 @@ class Chromium {
         }
 
         const extensionIds = Object.keys(preferences.data.extensions.settings);
-        for (const entry of privy.messaging) {
-          const name = entry[0];
-          const channel = entry[1];
-
+        for (const channel of privy.messaging) {
+          const infos = yield channel._ref(this);
+          addCleanup(this, { cleanup() { channel._unref(this); } });
           addCleanup(this,
-            yield installMessaging(userData.path, name, extensionIds, channel)
+            yield installMessaging(userData.path, extensionIds, infos)
           );
         }
 

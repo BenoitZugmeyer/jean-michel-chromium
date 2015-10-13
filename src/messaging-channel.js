@@ -2,11 +2,13 @@
 
 const EventEmitter = require("events").EventEmitter;
 const net = require("net");
-const fs = require("fs");
 const os = require("os");
+const path = require("path");
 
 const streamChunks = require("./stream-util").streamChunks;
+const PromiseUtil = require("./promise-util");
 const makePrivate = require("./make-private");
+const FsUtil = require("./fs-util");
 
 const endianness = os.endianness();
 const uint32Size = 4;
@@ -70,42 +72,99 @@ class Port extends EventEmitter {
 
 }
 
+// Quoting the doc:
+// This name can only contain lowercase alphanumeric characters, underscores and dots. The
+// name cannot start or end with a dot, and a dot cannot be followed by another dot.
+const validMessagingName = (name) => /^([a-z0-9_]+\.)*[a-z0-9_]+$/.test(name);
+
+const listen = (server, sockPath) => {
+  const listeningPromise = new Promise((resolve, reject) => {
+    server.once("listening", () => {
+      server.removeListener("error", reject);
+      resolve();
+    });
+    server.once("error", () => {
+      server.removeListener("listening", resolve);
+      reject();
+    });
+  });
+
+  server.listen(sockPath);
+  return listeningPromise;
+};
+
 const privateMessagingChannel = makePrivate();
 
-class MessagingChannel extends EventEmitter {
+const disconnect = (channel) => {
+  const privy = privateMessagingChannel(channel);
+  privy.cancelConnect = true;
+  if (privy.server) privy.server.close();
+  if (privy.directory) privy.directory.cleanup();
+};
 
-  connect(sockPath) {
-    const privy = privateMessagingChannel(this);
-    if (privy.server) throw new Error("Channel already connected");
-    privy.sockPath = sockPath;
+const connect = PromiseUtil.wrapRun(function* (channel) {
+  const privy = privateMessagingChannel(channel);
+  privy.cancelConnect = false;
+
+  const assertNotCanceled = () => {
+    if (privy.cancelConnect) throw new Error("Connection canceled");
+  };
+
+  try {
+    privy.directory = yield FsUtil.createTemporaryDirectory({ prefix: `MessagingChannel-${privy.name}-`})
+    assertNotCanceled();
+    privy.sockPath = path.join(privy.directory.path, "pipeio.sock");
+    const pipeioPath = path.join(privy.directory.path, "pipeio.js")
+
+    yield FsUtil.symlink(path.join(__dirname, "..", "pipeio", "pipeio.js"), pipeioPath);
+    assertNotCanceled();
 
     privy.server = net.Server();
 
-    const listeningPromise = new Promise((resolve, reject) => {
-      privy.server.once("listening", () => {
-        privy.server.removeListener("error", reject);
-        resolve();
-      });
-      privy.server.once("error", () => {
-        privy.server.removeListener("listening", resolve);
-        reject();
-      });
-    });
+    yield listen(privy.server, privy.sockPath);
+    assertNotCanceled();
 
     privy.server.on("connection", (client) => {
-      this.emit("connection", new Port(client));
+      channel.emit("connection", new Port(client));
     });
 
-    privy.server.listen(privy.sockPath);
+    return { name: privy.name, pipeioPath };
+  }
+  catch (e) {
+    disconnect(channel);
+    throw e;
+  }
+});
 
-    return listeningPromise;
+class MessagingChannel extends EventEmitter {
+
+  constructor(name) {
+    if (!name) throw new Error("Messaging channel name is mendatory");
+    name = String(name);
+    if (!validMessagingName(name)) throw new Error("Invalid messaging channel name");
+    super();
+    const privy = privateMessagingChannel(this);
+    privy.name = name;
+    privy.refs = new Set();
   }
 
-  disconnect() {
+  get name() {
+    return privateMessagingChannel(this).name;
+  }
+
+  _ref(chromium) {
     const privy = privateMessagingChannel(this);
-    // Needs to be synchronous as it could be called when exiting the process.
-    privy.server.close();
-    if (fs.existsSync(privy.sockPath)) fs.unlinkSync(privy.sockPath);
+    privy.refs.add(chromium);
+    if (!privy.connectPromise) privy.connectPromise = connect(this);
+    return privy.connectPromise;
+  }
+
+  _unref(chromium) {
+    const privy = privateMessagingChannel(this);
+    if (privy.refs.has(chromium)) {
+      privy.refs.delete(chromium);
+      if (privy.refs.size === 0) disconnect(this);
+    }
   }
 
 }
