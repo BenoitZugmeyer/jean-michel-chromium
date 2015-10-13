@@ -25,7 +25,7 @@ const createTemporaryUserDataDirectory = () =>
   createTemporaryDirectory({ prefix: `${pkg.name}-UserData-`, unsafeCleanup: true });
 
 const createTemporaryProfileDirectory = (userDataDirectory) =>
-  createTemporaryDirectory({ dir: userDataDirectory, template: "tmp-XXXXXX", unsafeCleanup: true });
+  createTemporaryDirectory({ dir: userDataDirectory, prefix: "Session-", unsafeCleanup: true });
 
 let _defaultBinaryPath;
 
