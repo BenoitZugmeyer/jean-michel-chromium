@@ -33,7 +33,7 @@ const run = (generator) => runIterator(generator());
 
 const wrapRun = (generator) =>
   function () {
-    return runIterator(generator.apply(null, arguments));
+    return runIterator(generator.apply(this, arguments));
   };
 
 const wrapCPS = (fn, options) =>

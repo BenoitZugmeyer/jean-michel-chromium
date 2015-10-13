@@ -6,6 +6,7 @@ const fs = require("fs");
 const os = require("os");
 
 const streamChunks = require("./stream-util").streamChunks;
+const makePrivate = require("./make-private");
 
 const endianness = os.endianness();
 const uint32Size = 4;
@@ -38,12 +39,14 @@ const streamObjects = (readable, emit) => {
   });
 };
 
+const privatePort = makePrivate();
 
 class Port extends EventEmitter {
 
   constructor(client) {
     super();
-    this._client = client;
+    const privy = privatePort(this);
+    privy.client = client;
 
     streamObjects(client, (message) => {
       let parsed;
@@ -62,43 +65,47 @@ class Port extends EventEmitter {
   }
 
   post(message) {
-    this._client.write(bufferFrom(message));
+    privatePort(this).client.write(bufferFrom(message));
   }
 
 }
 
+const privateMessagingChannel = makePrivate();
+
 class MessagingChannel extends EventEmitter {
 
   connect(sockPath) {
-    if (this._server) throw new Error("Channel already connected");
-    this._sockPath = sockPath;
+    const privy = privateMessagingChannel(this);
+    if (privy.server) throw new Error("Channel already connected");
+    privy.sockPath = sockPath;
 
-    this._server = net.Server();
+    privy.server = net.Server();
 
     const listeningPromise = new Promise((resolve, reject) => {
-      this._server.once("listening", () => {
-        this._server.removeListener("error", reject);
+      privy.server.once("listening", () => {
+        privy.server.removeListener("error", reject);
         resolve();
       });
-      this._server.once("error", () => {
-        this._server.removeListener("listening", resolve);
+      privy.server.once("error", () => {
+        privy.server.removeListener("listening", resolve);
         reject();
       });
     });
 
-    this._server.on("connection", (client) => {
+    privy.server.on("connection", (client) => {
       this.emit("connection", new Port(client));
     });
 
-    this._server.listen(this._sockPath);
+    privy.server.listen(privy.sockPath);
 
     return listeningPromise;
   }
 
   disconnect() {
+    const privy = privateMessagingChannel(this);
     // Needs to be synchronous as it could be called when exiting the process.
-    this._server.close();
-    if (fs.existsSync(this._sockPath)) fs.unlinkSync(this._sockPath);
+    privy.server.close();
+    if (fs.existsSync(privy.sockPath)) fs.unlinkSync(privy.sockPath);
   }
 
 }

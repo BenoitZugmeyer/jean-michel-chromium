@@ -11,6 +11,7 @@ tmp.setGracefulCleanup();
 const pkg = require("../package.json");
 const PromiseUtil= require("./promise-util");
 const MessagingChannel= require("./messaging-channel");
+const makePrivate = require("./make-private");
 const wrapRun = PromiseUtil.wrapRun;
 const which = PromiseUtil.wrapCPS(require("which"));
 
@@ -207,95 +208,104 @@ const installMessaging = wrapRun(function* (userDataPath, name, allowedExtension
   };
 });
 
+const addCleanup = (chromium, fn) => {
+  privateChromium(chromium).toCleanup.unshift(fn);
+}
+
+const cleanup = (chromium) => {
+  const privy = privateChromium(chromium);
+  for (const obj of privy.toCleanup) {
+    obj.cleanup();
+  }
+  privy.toCleanup.length = 0;
+  privy.spawning = false;
+  privy.cancelSpawn = false;
+}
+
+const privateChromium = makePrivate();
+
 class Chromium {
 
   constructor(options) {
+    const privy = privateChromium(this);
+
     if (!options) options = {};
-    this._profileDirectory = options.profileDirectory || createTemporaryProfileDirectory;
-    this._userDataDirectory = options.userDataDirectory || createTemporaryUserDataDirectory;
-    this._extensions = options.extensions || [];
-    this._messaging = new Map(
+    privy.profileDirectory = options.profileDirectory || createTemporaryProfileDirectory;
+    privy.userDataDirectory = options.userDataDirectory || createTemporaryUserDataDirectory;
+    privy.extensions = options.extensions || [];
+    privy.messaging = new Map(
       (options.messaging || []).map((name) => [name, new MessagingChannel(this)])
     );
-    this._flags = options.flags || {};
+    privy.flags = options.flags || {};
 
-    this._child = null;
-    this._spawned = false;
-    this._cancelSpawn = false;
-    this._toCleanup = [];
-  }
-
-  _addCleanup(fn) {
-    this._toCleanup.unshift(fn);
-  }
-
-  _cleanup() {
-    for (const obj of this._toCleanup) {
-      obj.cleanup();
-    }
-    this._toCleanup.length = 0;
-    this._spawning = false;
-    this._cancelSpawn = false;
+    privy.child = null;
+    privy.spawned = false;
+    privy.cancelSpawn = false;
+    privy.toCleanup = [];
   }
 
   messaging(name) {
-    return this._messaging.get(name);
+    return privateChromium(this).messaging.get(name);
   }
 
   spawn() {
-    if (this._spawned) throw new Error("Already spawned");
-    this._spawned = true;
+    const privy = privateChromium(this);
 
     return PromiseUtil.run(function* () {
-      try {
-        const userData = yield installUserDataDirectory(this._userDataDirectory);
-        this._addCleanup(userData);
-        const profile = yield installProfileDirectory(userData.path, this._profileDirectory);
-        this._addCleanup(profile);
-        const preferences = yield installPreferences(profile.path);
-        this._addCleanup(preferences);
+      if (privy.spawned) throw new Error("Already spawned");
+      privy.spawned = true;
 
-        for (const extension of this._extensions) {
+      try {
+        const userData = yield installUserDataDirectory(privy.userDataDirectory);
+        addCleanup(this, userData);
+        const profile = yield installProfileDirectory(userData.path, privy.profileDirectory);
+        addCleanup(this, profile);
+        const preferences = yield installPreferences(profile.path);
+        addCleanup(this, preferences);
+
+        for (const extension of privy.extensions) {
           yield installExtension(preferences.data, extension);
         }
 
         const extensionIds = Object.keys(preferences.data.extensions.settings);
-        for (const entry of this._messaging) {
+        for (const entry of privy.messaging) {
           const name = entry[0];
           const channel = entry[1];
 
-          this._addCleanup(
+          addCleanup(this,
             yield installMessaging(userData.path, name, extensionIds, channel)
           );
         }
 
         yield writeFile(preferences.path, JSON.stringify(preferences.data));
 
-        if (this._cancelSpawn) throw new Error("Killed before spawning");
+        if (privy.cancelSpawn) throw new Error("Killed before spawning");
 
-        this._child = yield spawnChromium(Object.assign({}, this._flags, {
+        privy.child = yield spawnChromium(Object.assign({}, privy.flags, {
           userDataDir: userData.path,
           profileDirectory: profile.name,
         }));
       }
       catch (e) {
-        this._cleanup();
+        cleanup(this);
         throw e;
       }
     }.bind(this));
   }
 
   kill() {
-    if (!this._spawned) throw new Error("Not spawned");
+    const privy = privateChromium(this);
+
+    if (!privy.spawned) throw new Error("Not spawned");
 
     return PromiseUtil.run(function* () {
-      if (this._child) {
-        yield this._child.asyncKill();
+      if (privy.child) {
+        yield privy.child.asyncKill();
       }
       else {
-        this._cancelSpawn = true;
+        privy.cancelSpawn = true;
       }
-      this._cleanup();
+      cleanup(this);
     }.bind(this));
   }
 
