@@ -258,7 +258,7 @@ class Chromium {
         const extensionIds = Object.keys(preferences.data.extensions.settings);
         for (const channel of privy.messaging) {
           const infos = yield channel._ref(this);
-          addCleanup(this, { cleanup() { channel._unref(this); } });
+          addCleanup(this, { cleanup: () => { channel._unref(this); } });
           addCleanup(this,
             yield installMessaging(userData.path, extensionIds, infos)
           );
