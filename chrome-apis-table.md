@@ -1,4 +1,6 @@
-# Chromium API table| Name | Apps | Extensions | Description |
+# Chromium API table
+
+| Name | Apps | Extensions | Description |
 | ---- | :---: | :---: |---- |
 | [accessibilityFeatures](https://developer.chrome.com/apps/accessibilityFeatures) | 37 | 37 | Use the <code>chrome.accessibilityFeatures</code> API to manage Chrome&apos;s accessibility features. This API relies on the <a href="https://developer.chrome.com/apps/types#ChromeSetting">ChromeSetting prototype of the type API</a> for getting and setting individual accessibility features. In order to get feature states the extension must request <code>accessibilityFeatures.read</code> permission. For modifying feature state, the extension needs <code>accessibilityFeatures.modify</code> permission. Note that <code>accessibilityFeatures.modify</code> does not imply <code>accessibilityFeatures.read</code> permission. |
 | [alarms](https://developer.chrome.com/apps/alarms) | 22 | 22 | Use the <code>chrome.alarms</code> API to schedule code to run periodically or at a specified time in the future. |

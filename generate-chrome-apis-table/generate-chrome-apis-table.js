@@ -62,7 +62,7 @@ const stream = fs.createWriteStream(path.join(__dirname, "..", "chrome-apis-tabl
 
 Promise.all(apis.map((api) => getEntries(api.url)))
 .then((entries) => {
-  stream.write("# Chromium API table");
+  stream.write("# Chromium API table\n\n");
 
   const items = entries.map((e) => e.next().value);
 
