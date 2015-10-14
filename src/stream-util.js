@@ -44,16 +44,38 @@ const streamChunks = (readable, getLengthToRead, emit) => {
   });
 };
 
-const streamLines = (readable, emit) => {
-  streamChunks(readable, (chunk) => {
-    const index = chunk.indexOf("\n");
-    return index < 0 ? -1 : index + 1;
-  }, emit);
+const getLineLength = (chunk) => {
+  const index = chunk.indexOf("\n");
+  return index < 0 ? -1 : index + 1;
+};
+
+const streamLines = (readable, emit) => streamChunks(readable, getLineLength, emit);
+
+const readAsChunks = (readable, getLengthToRead) => {
+  const chunks = [];
+  streamChunks(readable, getLengthToRead, (chunk) => chunks.push(chunk));
+  return withStream(readable).then(() => chunks);
+};
+
+const readAsBuffer = (readable) => {
+  return readAsChunks(readable, () => -1).then((chunks) => chunks[0] || new Buffer(0));
+};
+const readAsLines = (readable) => readAsChunks(readable, getLineLength);
+
+const withStream = (stream) => {
+  return new Promise((resolve, reject) => {
+    stream.on("error", reject);
+    stream.on("end", resolve);
+  });
 };
 
 module.exports = {
   streamChunks,
   streamLines,
+  readAsChunks,
+  readAsBuffer,
+  readAsLines,
+  withStream,
 };
 
 // TODO move this in a test runner
