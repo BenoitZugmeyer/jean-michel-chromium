@@ -68,6 +68,7 @@ const getPage = (url) => {
       span.name = "code";
       span.attribs = {};
     });
+    $("br").remove();
     $.url = url;
     return $;
   })
@@ -97,18 +98,6 @@ const parseAPIEntry = ($) => {
   };
 };
 
-const writeTableHeader = (stream) => {
-  stream.write("# Chromium APIs table\n\n");
-
-  stream.write("| Name |");
-  for (const api of apis) stream.write(` ${api.title} |`);
-  stream.write(" Permission | Description |\n");
-
-  stream.write("| ---- |");
-  for (const _ of apis) stream.write(` :---: |`); // eslint-disable-line no-unused-vars
-  stream.write(" ----- | ---- |\n");
-};
-
 const iterateItems = function* (entries) {
   entries = entries.map((e) => e[Symbol.iterator]());
 
@@ -135,42 +124,41 @@ const getAPIEntries = (url) => getPage(url).then(parseAPIEntries);
 
 const stream = fs.createWriteStream(path.join(__dirname, "..", "chrome-apis-table.md"));
 
+
 Promise.all(apis.map((api) => getAPIEntries(api.url)))
 .then((entries) => {
-  writeTableHeader(stream);
+  stream.write("# Chromium APIs table\n\n");
 
   for (const i of iterateItems(entries)) {
     const min = i.min;
-    stream.write(`| [${min.title}](${min.href}) |`);
 
-    i.items.forEach((item) => {
-      if (item) {
-        stream.write(` ${item.availability} |`);
-      }
-      else {
-        stream.write("  |");
-      }
-    });
+    stream.write(`### [${min.title}](${min.href})\n\n`);
 
-    if (min.permissions && min.manifest) throw new Error(`API ${min.title} have both manifest and permission`);
+    stream.write("|");
+    for (const api of apis) stream.write(` ${api.title} |`);
+    if (min.permissions) stream.write(" Permission |");
+    if (min.manifest) stream.write(" Manifest |");
+    if (min.caution) stream.write(" Caution |");
+    stream.write("\n");
 
-    if (min.permissions) {
-      stream.write(` ${min.permissions} |`);
+    stream.write("|");
+    for (const _ of apis) stream.write(` :---: |`); // eslint-disable-line no-unused-vars
+    if (min.permissions) stream.write(" --- |");
+    if (min.manifest) stream.write(" --- |");
+    if (min.caution) stream.write(" --- |");
+    stream.write("\n");
+
+    stream.write("|");
+    for (const item of i.items) {
+      if (item) stream.write(` ${item.availability} |`);
+      else stream.write("  -  |");
     }
-    else if (min.manifest) {
-      stream.write(` ${min.manifest} (manifest) |`);
-    }
-    else {
-      stream.write("  |");
-    }
+    if (min.permissions) stream.write(` ${min.permissions} |`);
+    if (min.manifest) stream.write(` ${min.manifest} |`);
+    if (min.caution) stream.write(` **${min.caution}** |`);
+    stream.write("\n\n");
 
-    stream.write(` ${min.description} `);
-
-    if (min.caution) {
-      stream.write(` **${min.caution}** `);
-    }
-
-    stream.write("|\n");
+    stream.write(`${min.description}\n\n`);
   }
 })
 .catch((error) => printErr(error.stack));
