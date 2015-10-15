@@ -8,6 +8,23 @@ const request = require("./request");
 const url = require("url");
 const cheerio = require("cheerio");
 
+const apis = [
+  {
+    url: "https://developer.chrome.com/apps/api_index",
+    title: "Apps",
+    permissions: "https://developer.chrome.com/apps/declare_permissions",
+  },
+  {
+    url: "https://developer.chrome.com/extensions/api_index",
+    title: "Extensions",
+    permissions: "https://developer.chrome.com/extensions/declare_permissions",
+  },
+];
+
+const printErr = (s) => process.stderr.write(`${s}\n`);
+const print = (s) => process.stdout.write(`${s}\n`);
+
+
 cheerio.prototype[Symbol.iterator] = function () {
   let index = 0;
   const next = () => {
@@ -28,69 +45,132 @@ const makeAbsoluteLinks = ($node, base) => {
   }
 };
 
-const getEntries = (url) => {
+
+const getPage = (url) => {
+  print(`Download start ${url}`);
   return request(url)
+  .then(request.followRedirections)
+  .then((response) => {
+    if (response.statusCode !== 200) throw Error(`Download failed with status ${response.statusCode}`);
+    return response;
+  })
   .then(request.readAsBuffer)
-  .then(cheerio.load)
-  .then(function* ($) {
-    for (const entry of $('#stable_apis + p table tr + tr')) {
-      const $children = $(entry).children("td");
-      makeAbsoluteLinks($children, url);
-      yield {
-        href: $children.eq(0).find("a").attr("href"),
-        title: $children.eq(0).text(),
-        description: $children.eq(1).html().trim(),
-        version: Number($children.eq(2).text()),
-      };
-    }
-  });
+  .then((buffer) => {
+    print(`Download done  ${url}`);
+    return buffer;
+  })
+  .then((buffer) => {
+    const $ = cheerio.load(buffer, {
+      normalizeWhitespace: true,
+    });
+    makeAbsoluteLinks($("body"), url);
+    $("span.code").each((i, span) => {
+      span.name = "code";
+      span.attribs = {};
+    });
+    $.url = url;
+    return $;
+  })
 };
 
-const apis = [
-  {
-    url: "https://developer.chrome.com/apps/api_index",
-    title: "Apps",
-  },
-  {
-    url: "https://developer.chrome.com/extensions/api_index",
-    title: "Extensions",
-  },
-];
 
+const parseAPIEntries = ($) => {
+  return Promise.all($('#stable_apis + p table tr + tr').toArray().map((entry) => {
+    return getPage($(entry).find("a").first().attr("href")).then(parseAPIEntry);
+  }));
+};
 
-const stream = fs.createWriteStream(path.join(__dirname, "..", "chrome-apis-table.md"));
+const parseAPIEntry = ($) => {
+  const $intro = $("#intro");
+  const getIntro = (name) => {
+    return ($intro.find(`.title:contains('${name}')`).next().html() || "").trim();
+  };
 
-Promise.all(apis.map((api) => getEntries(api.url)))
-.then((entries) => {
-  stream.write("# Chromium API table\n\n");
+  return {
+    href: $.url,
+    title: $("h1").first().text(),
+    description: getIntro("Description"),
+    availability: getIntro("Availability").replace(/Since Chrome (\d+)\./, '$1'),
+    permissions: getIntro("Permissions"),
+    manifest: getIntro("Manifest"),
+    caution: $(".api .caution").text().trim(),
+  };
+};
 
-  const items = entries.map((e) => e.next().value);
+const writeTableHeader = (stream) => {
+  stream.write("# Chromium APIs table\n\n");
 
   stream.write("| Name |");
   for (const api of apis) stream.write(` ${api.title} |`);
-  stream.write(" Description |\n");
+  stream.write(" Permission | Description |\n");
 
   stream.write("| ---- |");
   for (const _ of apis) stream.write(` :---: |`); // eslint-disable-line no-unused-vars
-  stream.write("---- |\n");
+  stream.write(" ----- | ---- |\n");
+};
+
+const iterateItems = function* (entries) {
+  entries = entries.map((e) => e[Symbol.iterator]());
+
+  const items = entries.map((e) => e.next().value);
 
   while (items.some((i) => i)) {
     let min;
     for (const item of items) if (item && (!min || item.title < min.title)) min = item;
 
+    yield {
+      min,
+      items: items.map((item, i) => {
+        if (item && item.title === min.title) {
+          items[i] = entries[i].next().value;
+          return item;
+        }
+      }),
+    };
+  }
+};
+
+const getAPIEntries = (url) => getPage(url).then(parseAPIEntries);
+
+
+const stream = fs.createWriteStream(path.join(__dirname, "..", "chrome-apis-table.md"));
+
+Promise.all(apis.map((api) => getAPIEntries(api.url)))
+.then((entries) => {
+  writeTableHeader(stream);
+
+  for (const i of iterateItems(entries)) {
+    const min = i.min;
     stream.write(`| [${min.title}](${min.href}) |`);
-    items.forEach((item, i) => {
-      if (item && item.title === min.title) {
-        stream.write(` ${item.version} |`);
-        items[i] = entries[i].next().value;
+
+    i.items.forEach((item) => {
+      if (item) {
+        stream.write(` ${item.availability} |`);
       }
       else {
         stream.write("  |");
       }
     });
 
-    stream.write(` ${min.description} |`);
-    stream.write("\n");
+    if (min.permissions && min.manifest) throw new Error(`API ${min.title} have both manifest and permission`);
+
+    if (min.permissions) {
+      stream.write(` ${min.permissions} |`);
+    }
+    else if (min.manifest) {
+      stream.write(` ${min.manifest} (manifest) |`);
+    }
+    else {
+      stream.write("  |");
+    }
+
+    stream.write(` ${min.description} `);
+
+    if (min.caution) {
+      stream.write(` **${min.caution}** `);
+    }
+
+    stream.write("|\n");
   }
 })
-.catch((error) => process.stderr.write(error.stack));
+.catch((error) => printErr(error.stack));
