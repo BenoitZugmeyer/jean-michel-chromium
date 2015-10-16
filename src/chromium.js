@@ -229,9 +229,9 @@ class Chromium {
     const addCleanup = cleaner.add.bind(cleaner, this);
 
     addCleanup(() => {
-      this._spawned = false;
-      this._cancelSpawn = false;
-      this._child = null;
+      privy.spawned = false;
+      privy.cancelSpawn = false;
+      privy.child = null;
     });
 
     return PromiseUtil.run(function* () {
