@@ -251,6 +251,9 @@ class Chromium {
         }
 
         const extensionIds = Object.keys(preferences.data.extensions.settings);
+        if (privy.flags.loadAndLaunchApp) {
+          extensionIds.push(computeExtensionId(privy.flags.loadAndLaunchApp));
+        }
         for (const channel of privy.messaging) {
           const infos = yield channel._ref(this);
           addCleanup(() => channel._unref(this));
